@@ -17,6 +17,14 @@ function err(msg: string) { return fail(msg, -1); }
 function denypage() { return json({ total: 0, rows: [] }); }
 function int(v: any, def = 0) { const n = parseInt(String(v ?? ''), 10); return isNaN(n) ? def : n; }
 
+/** 从 body 或 URL 末段解析 action */
+function getAct(ctx: { url: URL; body: Record<string, any> }): string {
+  const parts = ctx.url.pathname.split('/').filter(Boolean);
+  const last = parts[parts.length - 1] || '';
+  const fromPath = ['add', 'edit', 'del', 'delete', 'get', 'set', 'setactive', 'open', 'pause', 'remark', 'group'].includes(last) ? last : '';
+  return String(ctx.body.act || ctx.body.action || fromPath || '');
+}
+
 /* ==================== 用户管理 ==================== */
 
 export async function userData(ctx: RequestContext): Promise<Response> {
@@ -38,7 +46,7 @@ export async function userData(ctx: RequestContext): Promise<Response> {
 export async function userOp(ctx: RequestContext): Promise<Response> {
   if (!checkPermission(ctx.user, 2)) return err('无权限');
   const { body, env, user } = ctx;
-  const act = String(body.act || body.action || '');
+  const act = getAct(ctx);
   const id = int(body.id);
 
   if (act === 'get') {
@@ -143,7 +151,7 @@ export async function accountData(ctx: RequestContext): Promise<Response> {
 export async function accountOp(ctx: RequestContext): Promise<Response> {
   if (!checkPermission(ctx.user, 2)) return err('无权限');
   const { body, env } = ctx;
-  const act = String(body.action || '');
+  const act = getAct(ctx);
   const id = int(body.id);
 
   if (act === 'add' || act === 'edit') {
@@ -160,13 +168,12 @@ export async function accountOp(ctx: RequestContext): Promise<Response> {
     let cfgObj: Record<string, any> = {};
     try { cfgObj = JSON.parse(config); } catch { return err('配置格式错误'); }
 
-    // 验证密钥有效性
-    const provider = getProviderByAccount(env, act === 'add' ? -1 : id, '', '');
-    // 直接用配置构造验证
-    const { createProvider } = await import('../dns/factory');
-    const p = createProvider(env, type, cfgObj);
-    if (!p) return err(`DNS模块(${type})不存在`);
-    if (!await p.check()) return err('验证域名账户失败，' + p.getError());
+    // 验证密钥有效性（可跳过：Workers 网络环境可能受限）
+    if (String(body.skipCheck || '') !== '1') {
+      const { createProvider } = await import('../dns/factory');
+      const p = createProvider(env, type, cfgObj);
+      if (p && !await p.check()) return err('验证域名账户失败：' + p.getError() + '（如确认配置无误，可勾选"跳过密钥验证"重试）');
+    }
 
     if (act === 'add') {
       await db(env, 'account').insert({ type, name, config, remark, addtime: now() });
@@ -230,7 +237,7 @@ export async function domainData(ctx: RequestContext): Promise<Response> {
 
 export async function domainOp(ctx: RequestContext): Promise<Response> {
   const { body, env, user } = ctx;
-  const act = String(body.act || '');
+  const act = getAct(ctx);
   const id = int(body.id);
 
   if (act === 'get') {

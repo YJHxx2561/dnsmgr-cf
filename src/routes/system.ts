@@ -89,11 +89,22 @@ function listHandler(table: string, searchFields: string[] = []) {
   };
 }
 
-/** 通用单表 CRUD 操作 */
-function opHandler(table: string, fields: Record<string, (v: any) => any>) {
+/** 通用单表 CRUD 操作
+ *  options.defaults: add 时写入的固定默认值（如 int 时间戳、初始状态）
+ */
+function opHandler(
+  table: string,
+  fields: Record<string, (v: any) => any>,
+  options: { defaults?: Record<string, any>; timeField?: 'int' | 'datetime' | 'none' } = {}
+) {
+  const defaults = options.defaults || {};
+  const timeField = options.timeField ?? 'datetime';
   return async (ctx: RequestContext): Promise<Response> => {
     const { body, env } = ctx;
-    const act = String(body.act || body.action || '');
+    // action 可能来自 body，也可能来自 URL 最后一段（如 /domain/category/add）
+    const pathParts = ctx.url.pathname.split('/').filter(Boolean);
+    const pathAction = pathParts[pathParts.length - 1] || '';
+    const act = String(body.act || body.action || (['add', 'edit', 'del', 'delete', 'get', 'set', 'setactive'].includes(pathAction) ? pathAction : ''));
     const id = int(body.id);
 
     if (act === 'get') {
@@ -101,9 +112,10 @@ function opHandler(table: string, fields: Record<string, (v: any) => any>) {
       return row ? json({ code: 0, data: row }) : err('记录不存在');
     }
     if (act === 'add') {
-      const data: Record<string, any> = {};
+      const data: Record<string, any> = { ...defaults };
       for (const [k, fn] of Object.entries(fields)) if (k in body) data[k] = fn(body[k]);
-      data.addtime = data.addtime ?? now();
+      if (timeField === 'int' && !('addtime' in data)) data.addtime = Math.floor(Date.now() / 1000);
+      else if (timeField === 'datetime' && !('addtime' in data)) data.addtime = now();
       const newId = await db(env, table).insertGetId(data);
       return newId ? ok('添加成功！', { id: newId }) : err('添加失败');
     }
@@ -121,6 +133,10 @@ function opHandler(table: string, fields: Record<string, (v: any) => any>) {
       await db(env, table).where('id', id).update({ status: int(body.status), active: int(body.active, 1) });
       return ok('操作成功');
     }
+    if (act === 'setactive') {
+      await db(env, table).where('id', id).update({ active: int(body.active) });
+      return ok('操作成功');
+    }
     return json({ code: -3 });
   };
 }
@@ -129,9 +145,10 @@ function opHandler(table: string, fields: Record<string, (v: any) => any>) {
 export const dmtaskData = listHandler('dmtask', ['rr', 'main_value', 'remark']);
 export const dmtaskOp = opHandler('dmtask', {
   did: int, rr: String, recordid: String, type: int, main_value: String, backup_value: String,
-  checktype: int, checkurl: String, tcpport: (v) => v ? int(v) : null, frequency: int, cycle: int,
-  timeout: int, remark: String, proxy: int, cdn: int,
-});
+  checktype: int, checkurl: String, tcpport: (v) => (v === '' || v === null || v === undefined ? null : int(v)),
+  frequency: int, cycle: int, timeout: int, remark: String, proxy: int, cdn: int,
+  recordinfo: String,
+}, { defaults: { active: 1, status: 0, checktime: 0, checknexttime: 0, switchtime: 0, errcount: 0 }, timeField: 'int' });
 export const dmlogData = listHandler('dmlog', ['errmsg']);
 
 // 定时切换
@@ -139,14 +156,24 @@ export const staskData = listHandler('sctask', ['rr', 'remark']);
 export const staskOp = opHandler('sctask', {
   did: int, rr: String, recordid: String, type: int, cycle: int, switchtype: int,
   switchdate: String, switchtime: String, value: String, line: String, remark: String,
-});
+  recordinfo: String,
+}, { defaults: { active: 1, nexttime: 0, updatetime: 0 }, timeField: 'int' });
 
 // 优选IP
 export const optimizeipData = listHandler('optimizeip', ['rr', 'remark']);
 export const optimizeipOp = opHandler('optimizeip', {
   did: int, rr: String, type: int, ip_type: String, cdn_type: int, recordnum: int,
   ttl: int, remark: String,
-});
+}, { defaults: { status: 0, active: 1, cdn_type: 1 }, timeField: 'datetime' });
+
+/** 手动执行优选IP任务（刷新时间戳，实际优选由 cron 分步处理） */
+export async function optimizeipRun(ctx: RequestContext): Promise<Response> {
+  if (!checkPermission(ctx.user, 2)) return err('无权限');
+  const id = int(ctx.body.id);
+  if (!id) return err('参数错误');
+  await db(ctx.env, 'optimizeip').where('id', id).update({ updatetime: now() });
+  return ok('已提交执行，优选任务将在下一轮定时任务中处理');
+}
 
 // 域名分类
 export const categoryData = listHandler('domain_category', ['name', 'remark']);
@@ -154,12 +181,25 @@ export const categoryOp = opHandler('domain_category', { name: String, remark: S
 
 /* ==================== 证书管理 ==================== */
 
-export const certAccountData = listHandler('cert_account', ['name', 'remark']);
+/** 证书账户列表：deploy=0 为SSL证书账户，deploy=1 为部署账户 */
+export const certAccountData = async (ctx: RequestContext): Promise<Response> => {
+  const { body, env } = ctx;
+  const q = db(env, 'cert_account');
+  if (body.kw) q.whereRaw('(name LIKE ? OR remark LIKE ?)', `%${body.kw}%`, `%${body.kw}%`);
+  const deploy = body.deploy !== undefined && body.deploy !== '' ? int(body.deploy) : 0;
+  q.where('deploy', deploy);
+  const total = await q.count();
+  const rows = await q.order('id', 'DESC').limit(int(body.offset), int(body.limit, 100)).select();
+  return json({ total, rows });
+};
 export const certAccountOp = opHandler('cert_account', {
   type: String, name: String, config: String, ext: String, remark: String, deploy: int,
 });
 export const certOrderData = listHandler('cert_order', ['issuer', 'error']);
 export const certDeployData = listHandler('cert_deploy', ['remark', 'error']);
+export const certDeployOp = opHandler('cert_deploy', {
+  aid: int, oid: int, config: String, remark: String,
+}, { defaults: { status: 0, active: 1, retry: 0 } });
 export const certCnameData = listHandler('cert_cname', ['domain', 'rr']);
 export const certCnameOp = opHandler('cert_cname', { domain: String, did: int, rr: String });
 
@@ -170,14 +210,45 @@ export async function certOrderProcess(ctx: RequestContext): Promise<Response> {
   return ok(result);
 }
 
-/** 证书订单添加（含 cert_domain 关联） */
+/** 证书订单操作：add（含 cert_domain 关联）/ edit / del / setauto / get */
 export async function certOrderAdd(ctx: RequestContext): Promise<Response> {
   if (!checkPermission(ctx.user, 2)) return err('无权限');
   const { body, env } = ctx;
+  const act = String(body.act || body.action || 'add');
+  const id = int(body.id);
+
+  if (act === 'get') {
+    const row = await db(env, 'cert_order').where('id', id).find();
+    if (!row) return err('订单不存在');
+    const domains = await db(env, 'cert_domain').where('oid', id).order('sort').column('domain');
+    return json({ code: 0, data: { ...row, domains } });
+  }
+  if (act === 'del' || act === 'delete') {
+    await db(env, 'cert_order').where('id', id).delete();
+    await db(env, 'cert_domain').where('oid', id).delete();
+    return ok('删除成功');
+  }
+  if (act === 'setauto') {
+    await db(env, 'cert_order').where('id', id).update({ isauto: int(body.isauto) });
+    return ok('操作成功');
+  }
+  if (act === 'edit') {
+    const domains: string[] = Array.isArray(body.domains) ? body.domains : (body.domain ? [body.domain] : []);
+    if (!id || !domains.length || !body.aid) return err('参数不能为空');
+    await db(env, 'cert_order').where('id', id).update({
+      aid: int(body.aid), keytype: body.keytype || 'RSA', keysize: body.keysize || '2048',
+      isauto: int(body.isauto),
+    });
+    await db(env, 'cert_domain').where('oid', id).delete();
+    for (let i = 0; i < domains.length; i++) await db(env, 'cert_domain').insert({ oid: id, domain: domains[i], sort: i });
+    return ok('修改成功！');
+  }
+
+  // 默认 add
   const domains: string[] = Array.isArray(body.domains) ? body.domains : (body.domain ? [body.domain] : []);
   if (!domains.length || !body.aid) return err('参数不能为空');
   const oid = await db(env, 'cert_order').insertGetId({
-    aid: int(body.aid), keytype: body.keytype || 'ec', keysize: body.keysize || '256',
+    aid: int(body.aid), keytype: body.keytype || 'RSA', keysize: body.keysize || '2048',
     addtime: now(), status: 0, isauto: int(body.isauto),
   });
   if (!oid) return err('添加失败');

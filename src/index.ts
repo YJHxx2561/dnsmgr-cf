@@ -17,9 +17,10 @@ import { registerBackupRoutes } from './routes/backup';
 import {
   systemSet, systemConfigs, systemInfo, cleanCache,
   dmtaskData, dmtaskOp, dmlogData, staskData, staskOp, optimizeipData, optimizeipOp,
-  categoryData, categoryOp, certAccountData, certAccountOp, certOrderData, certDeployData,
-  certCnameData, certCnameOp, certOrderProcess, certOrderAdd, dmonitorClean,
+  categoryData, categoryOp, certAccountData, certAccountOp, certOrderData, certDeployData, certDeployOp,
+  certCnameData, certCnameOp, certOrderProcess, certOrderAdd, dmonitorClean, optimizeipRun,
 } from './routes/system';
+import { getMeta } from './routes/meta';
 import { handleMcp } from './services/mcp';
 import { runCronTasks } from './services/cron';
 import { checkPermission } from './auth/middleware';
@@ -38,6 +39,8 @@ router.get('/cron', async (ctx) => {
 }, { authType: 'none' });
 
 router.any('/mcp', handleMcp, { authType: 'mcp' });
+// 动态表单元数据（需登录）
+router.get('/meta/all', getMeta, { auth: true });
 
 /* ---------------------- 首页/仪表盘 ---------------------- */
 // 登录状态检查端点（前端 SPA 用）
@@ -105,6 +108,7 @@ router.post('/schedule/stask/:action', staskOp, { auth: true });
 
 /* ---------------------- 优选IP ---------------------- */
 router.post('/optimizeip/opiplist/data', optimizeipData, { auth: true });
+router.post('/optimizeip/opipform/run', optimizeipRun, { auth: true });
 router.post('/optimizeip/opipform/:action', optimizeipOp, { auth: true });
 router.any('/optimizeip/status', async () => json({ code: 0, data: { running: true, mode: 'cron' } }), { authType: 'none' });
 
@@ -116,8 +120,10 @@ router.get('/cert/certorder', certOrderData, { auth: true });
 router.post('/cert/order/data', certOrderData, { auth: true });
 router.post('/cert/order/process', certOrderProcess, { auth: true });
 router.post('/cert/order/add', certOrderAdd, { auth: true });
+router.post('/cert/order/:action', certOrderAdd, { auth: true }); // edit/del 等由 certOrderAdd 内部分发
 router.get('/cert/deploytask', certDeployData, { auth: true });
 router.post('/cert/deploy/data', certDeployData, { auth: true });
+router.post('/cert/deploy/:action', certDeployOp, { auth: true });
 router.get('/cert/cname', certCnameData, { auth: true });
 router.post('/cert/cname/data', certCnameData, { auth: true });
 router.post('/cert/cname/:action', certCnameOp, { auth: true });
