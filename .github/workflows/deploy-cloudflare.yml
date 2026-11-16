@@ -1,0 +1,83 @@
+# 通过 GitHub Actions 部署 dnsmgr 到 Cloudflare Workers
+#
+# 前置准备（在仓库 Settings → Secrets and variables → Actions 中配置）：
+#   1) Secrets：
+#      - CLOUDFLARE_API_TOKEN：Cloudflare API Token（权限：Account / Workers Scripts:Edit、D1:Edit、Workers KV Storage:Edit）
+#      - CLOUDFLARE_ACCOUNT_ID：Cloudflare 账户 ID
+#   2) Variables（可选，用于覆盖 wrangler.toml 中的占位符，避免改动源码）：
+#      - CF_D1_DATABASE_ID：D1 数据库 ID（用 wrangler d1 create dnsmgr 创建）
+#      - CF_KV_NAMESPACE_ID：KV 命名空间 ID（用 wrangler kv namespace create dnsmgr_kv 创建）
+#
+# 说明：如果未配置 Variables，请先手动把 wrangler.toml 中的
+# REPLACE_WITH_YOUR_D1_DATABASE_ID / REPLACE_WITH_YOUR_KV_NAMESPACE_ID 替换为真实 ID。
+
+name: Deploy dnsmgr to Cloudflare
+
+on:
+  # 推送到 main 分支自动部署（PHP 源码等其他目录改动也会触发，可用 paths 限定）
+  push:
+    branches:
+      - main
+    paths:
+      - 'cloudflare/worker/**'
+      - '.github/workflows/deploy-cloudflare.yml'
+  # 手动触发
+  workflow_dispatch:
+
+# 同一分支并发的部署只保留最新一次，避免相互覆盖
+concurrency:
+  group: cloudflare-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy Worker
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # 工作目录为 Worker 子目录
+    defaults:
+      run:
+        working-directory: cloudflare/worker
+
+    steps:
+      - name: Checkout 仓库
+        uses: actions/checkout@v4
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 注入 D1 / KV 资源 ID（若配置了 Variables）
+        working-directory: cloudflare/worker
+        env:
+          CF_D1_DATABASE_ID: ${{ vars.CF_D1_DATABASE_ID }}
+          CF_KV_NAMESPACE_ID: ${{ vars.CF_KV_NAMESPACE_ID }}
+        run: |
+          if [ -n "$CF_D1_DATABASE_ID" ]; then
+            sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$CF_D1_DATABASE_ID/g" wrangler.toml
+          fi
+          if [ -n "$CF_KV_NAMESPACE_ID" ]; then
+            sed -i "s/REPLACE_WITH_YOUR_KV_NAMESPACE_ID/$CF_KV_NAMESPACE_ID/g" wrangler.toml
+          fi
+          echo "wrangler.toml 资源配置："
+          grep -E 'database_id|^id =' wrangler.toml || true
+
+      - name: 应用 D1 数据库迁移（幂等，不删除数据）
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare/worker
+          command: d1 migrations apply DB --remote
+
+      - name: 部署 Worker
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cloudflare/worker
+          command: deploy

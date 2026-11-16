@@ -1,0 +1,41 @@
+{
+  "name": "dnsmgr-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "彩虹聚合DNS管理系统 - Cloudflare Workers 版本",
+  "type": "module",
+  "cloudflare": {
+    "description": "彩虹聚合DNS管理系统的 Cloudflare Workers 版本。会自动创建 D1 数据库与 KV 命名空间并绑定。",
+    "bindings": {
+      "DB": {
+        "description": "业务数据库（D1），存放域名、账户、用户、证书等数据。首次部署会自动创建并初始化表结构。"
+      },
+      "KV": {
+        "description": "键值缓存（Workers KV），存放配置缓存、验证码、登录锁定状态。"
+      },
+      "SYS_KEY": {
+        "description": "系统加密密钥。可不填，首次访问 /install 时会自动生成并存入 D1。"
+      }
+    }
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
+    "cf-types": "wrangler types",
+    "db:migrations:apply": "wrangler d1 migrations apply DB --remote",
+    "db:migrations:local": "wrangler d1 migrations apply DB --local",
+    "db:init": "wrangler d1 execute dnsmgr --local --file=./src/db/schema.sql",
+    "deploy": "npm run db:migrations:apply && wrangler deploy",
+    "deploy:worker-only": "wrangler deploy"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20241112.0",
+    "@types/bcryptjs": "^2.4.6",
+    "typescript": "^5.7.2",
+    "wrangler": "^3.99.0"
+  }
+}

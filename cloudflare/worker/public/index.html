@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>彩虹聚合DNS管理系统</title>
+  <link rel="icon" href="/favicon.ico">
+  <link rel="stylesheet" href="/static/css/bootstrap-3.4.1.min.css">
+  <link rel="stylesheet" href="/static/css/font-awesome-4.7.0.min.css">
+  <link rel="stylesheet" href="/static/css/app.min.css">
+  <link rel="stylesheet" href="/static/css/skins/skin-black-blue.css" id="skin-css">
+  <link rel="stylesheet" href="/static/css/custom.css">
+  <style>
+    .sidebar-menu>li>a{cursor:pointer}
+    .loader{text-align:center;padding:60px;color:#888}
+    .stat-card{color:#fff;padding:15px;border-radius:3px;margin-bottom:15px}
+    .stat-card.blue{background:#3c8dbc}.stat-card.green{background:#00a65a}.stat-card.yellow{background:#f39c12}.stat-card.red{background:#dd4b39}
+    .stat-card .num{font-size:28px;font-weight:bold}.stat-card .label-txt{font-size:13px;opacity:.9}
+    #main-content{min-height:calc(100vh - 100px)}
+    .table-toolbar{margin-bottom:12px}
+    .backup-actions .btn{margin-right:8px}
+  </style>
+</head>
+<body class="hold-transition skin-black-blue sidebar-mini">
+  <!-- 登录页 -->
+  <div id="login-page" style="display:none">
+    <div class="login-box" style="margin:8% auto;width:420px">
+      <div class="login-logo"><b>彩虹</b>DNS管理</div>
+      <div class="login-box-body">
+        <p class="login-box-msg">登录控制面板</p>
+        <form id="login-form">
+          <div class="form-group has-feedback">
+            <input type="text" class="form-control" id="login-username" placeholder="用户名" required autofocus>
+            <span class="glyphicon glyphicon-user form-control-feedback"></span>
+          </div>
+          <div class="form-group has-feedback">
+            <input type="password" class="form-control" id="login-password" placeholder="密码" required>
+            <span class="glyphicon glyphicon-lock form-control-feedback"></span>
+          </div>
+          <div class="form-group has-feedback" id="vcode-group">
+            <div class="input-group">
+              <input type="text" class="form-control" id="login-code" placeholder="验证码">
+              <span class="input-group-btn"><img id="vcode-img" src="/verifycode" alt="验证码" style="height:34px;cursor:pointer" title="点击刷新"></span>
+            </div>
+          </div>
+          <div id="totp-group" style="display:none">
+            <div class="form-group">
+              <input type="text" class="form-control" id="totp-code" placeholder="动态口令 (TOTP)">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary btn-block btn-flat" id="login-btn">登录</button>
+          <div id="login-msg" class="text-danger" style="margin-top:10px"></div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主应用 -->
+  <div class="wrapper" id="app" style="display:none">
+    <header class="main-header">
+      <a class="logo" style="cursor:default"><span class="logo-mini">DNS</span><span class="logo-lg"><b>彩虹</b>DNS管理</span></a>
+      <nav class="navbar navbar-static-top">
+        <a class="sidebar-toggle" data-toggle="offcanvas" role="button"><span class="sr-only">Toggle navigation</span></a>
+        <div class="navbar-custom-menu">
+          <ul class="nav navbar-nav">
+            <li><a href="#" onclick="app.logout()"><i class="fa fa-sign-out"></i> 退出</a></li>
+          </ul>
+        </div>
+      </nav>
+    </header>
+    <aside class="main-sidebar">
+      <section class="sidebar">
+        <ul class="sidebar-menu" id="sidebar-menu"></ul>
+      </section>
+    </aside>
+    <div class="content-wrapper">
+      <section class="content-header"><h1 id="page-title">仪表盘</h1></section>
+      <section class="content" id="main-content"><div class="loader">加载中...</div></section>
+    </div>
+    <footer class="main-footer">
+      <div class="pull-right hidden-xs">Cloudflare Workers Edition</div>
+      <strong>彩虹聚合DNS管理系统</strong>
+    </footer>
+  </div>
+
+  <!-- 模态框容器 -->
+  <div class="modal fade" id="edit-modal" tabindex="-1">
+    <div class="modal-dialog"><div class="modal-content">
+      <div class="modal-header"><button type="button" class="close" data-dismiss="modal">&times;</button><h4 class="modal-title" id="modal-title">编辑</h4></div>
+      <div class="modal-body" id="modal-body"></div>
+      <div class="modal-footer"><button type="button" class="btn btn-default" data-dismiss="modal">取消</button><button type="button" class="btn btn-primary" id="modal-save">保存</button></div>
+    </div></div>
+  </div>
+
+  <script src="/static/js/jquery-3.7.1.min.js"></script>
+  <script src="/static/js/bootstrap-3.4.1.min.js"></script>
+  <script src="/static/js/app.min.js"></script>
+  <script src="/static/js/layer/layer.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
