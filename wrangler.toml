@@ -1,0 +1,49 @@
+# Cloudflare Workers 配置
+# 名称可按需修改
+name = "dnsmgr"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ---------------------------------------------------------------------------
+# D1 数据库（业务数据：17 张表）
+# 创建命令: npx wrangler d1 create dnsmgr
+# 把命令返回的 database_id 填到下面
+# ---------------------------------------------------------------------------
+[[d1_databases]]
+binding = "DB"
+database_name = "dnsmgr"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# ---------------------------------------------------------------------------
+# KV 命名空间（配置缓存 / 会话 / 验证码 / 登录锁定）
+# 创建命令: npx wrangler kv namespace create dnsmgr_kv
+# ---------------------------------------------------------------------------
+[[kv_namespaces]]
+binding = "KV"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# ---------------------------------------------------------------------------
+# Cron Trigger：替代原 PHP 的 crontab + Swoole 常驻进程
+# 每分钟触发一次 /cron，与原有 cron_type=1 模式一致
+# ---------------------------------------------------------------------------
+[triggers]
+crons = ["* * * * *"]
+
+# ---------------------------------------------------------------------------
+# 环境变量（敏感值请用 `wrangler secret put SYS_KEY` 等设置，不要写在这里）
+# ---------------------------------------------------------------------------
+[vars]
+APP_DEBUG = "false"
+DEFAULT_TIMEZONE = "Asia/Shanghai"
+
+# ---------------------------------------------------------------------------
+# 静态资源：作为 Worker 部署时可直接托管前端（Pages 版本见 cloudflare/pages）
+# ---------------------------------------------------------------------------
+[assets]
+# 前端静态资源目录（独立于 PHP 的 public/，避免混淆）
+# 仓库根目录即为 Worker 项目根，一键部署 / GitHub Action 均可直接构建
+directory = "./web"
+binding = "ASSETS"
+# 让 Worker 优先处理 API 路由，静态资源作为兜底
+run_worker_first = true

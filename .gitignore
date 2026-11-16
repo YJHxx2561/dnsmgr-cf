@@ -7,3 +7,11 @@
 /.codex-tmp/dns-panel-ref/
 /runtime
 !/runtime/.gitignore
+
+# ---- Cloudflare Workers 项目忽略项 ----
+node_modules/
+.wrangler/
+dist/
+dist-check/
+.dev.vars
+*.local.sql

@@ -1,4 +1,79 @@
-# 彩虹聚合DNS管理系统
+# 彩虹聚合DNS管理系统 · Cloudflare 版
+
+> 本仓库是 [dnsmgr](https://github.com/netcccyun/dnsmgr) 的 **Cloudflare Workers 原生版本**（TypeScript 重写）。Worker 项目位于**仓库根目录**，可直接一键部署。
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YJHxx2561/dnsmgr-cf)
+
+后端 API + 定时任务运行在 Cloudflare Workers，前端由 Worker Assets 托管，数据存 D1（免费 SQLite），缓存存 KV。保留多用户权限、22 个 DNS 平台、解析记录实时管理、容灾切换、定时切换、通知、MCP、数据库备份/恢复（兼容历史 MySQL dump）等核心功能。
+
+## 🚀 部署教程
+
+三种方式任选其一，部署后访问 `https://<你的worker域名>/install` 创建管理员账号即可使用。
+
+### 方式一：一键部署（Deploy to Cloudflare，最简单）
+
+点击本页顶部的 **Deploy to Cloudflare** 按钮 → 授权 GitHub → Cloudflare 会自动把本仓库克隆到你的 GitHub 账号，**自动创建并绑定 D1 数据库和 KV 命名空间**、自动初始化数据库、自动部署。全程无需命令行。
+
+1. 前置：拥有 Cloudflare 账号 + GitHub 账号（本仓库需为 public）。
+2. 点击按钮，在配置页确认 Worker 名称、D1/KV 资源名称（可保持默认）。
+3. **Build command 留空**，**Deploy command 保持 `npm run deploy`**（该脚本会先执行幂等的 D1 迁移，再部署 Worker）。
+4. 点击 Deploy，等待部署完成。
+5. 访问 `https://<worker域名>/install` 创建管理员。
+6. （可选）在 Worker → Settings → Variables and Secrets 添加 `SYS_KEY` 随机字符串增强 cookie 加密；不填系统会自动生成。
+
+> 如果按钮链接中的仓库地址不是你自己的，把链接里的 `YJHxx2561/dnsmgr-cf` 换成 `<你的用户名>/<仓库名>`。
+
+### 方式二：GitHub Actions（push 自动部署）
+
+仓库已内置 `.github/workflows/deploy-cloudflare.yml`，Worker 在仓库根目录，无需设置子目录。
+
+1. 在仓库 **Settings → Secrets and variables → Actions** 配置：
+   - **Secrets（必填）**：
+     - `CLOUDFLARE_API_TOKEN`：API 令牌（权限含 Workers Scripts:Edit、D1:Edit、Workers KV Storage:Edit）
+     - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare 账户 ID
+   - **Variables（可选，推荐）**：
+     - `CF_D1_DATABASE_ID`、`CF_KV_NAMESPACE_ID`：填资源 ID，工作流会自动替换 `wrangler.toml` 占位符；不填则需手动把 `wrangler.toml` 里的 `REPLACE_WITH_YOUR_D1_DATABASE_ID` / `REPLACE_WITH_YOUR_KV_NAMESPACE_ID` 换成真实 ID。
+2. 创建资源（若还没有）：`npx wrangler d1 create dnsmgr`、`npx wrangler kv namespace create dnsmgr_kv`。
+3. 触发：Actions 页手动 Run workflow，或 push 到 `main`（改动 src/web/migrations 等时自动触发）。
+4. 工作流依次执行：安装依赖 → 注入资源 ID → 应用 D1 迁移 → 部署 Worker。
+
+### 方式三：本地 CLI（wrangler）
+
+```bash
+npm install
+npx wrangler login                            # 首次登录授权
+# 创建资源并把返回的 ID 填入 wrangler.toml
+npx wrangler d1 create dnsmgr
+npx wrangler kv namespace create dnsmgr_kv
+npx wrangler d1 migrations apply DB --local   # 本地调试用
+npm run dev                                   # 本地开发 http://localhost:8787
+npm run deploy                                # 部署：自动迁移 + 部署
+```
+
+`npm run deploy` = `wrangler d1 migrations apply DB --remote && wrangler deploy`，迁移幂等可重复执行，不会清空数据。
+
+### 关于定时任务
+
+`wrangler.toml` 已配置 `crons = ["* * * * *"]`，Cloudflare 每分钟自动触发容灾检测、定时切换、证书续签、到期提醒。也可访问 `https://<worker域名>/cron?key=<后台cron_key>` 手动触发。
+
+### 从旧系统恢复数据
+
+登录后台 → **系统 → 备份恢复**，上传原 PHP 系统导出的 MySQL `.sql` 备份，系统会自动转换为 D1/SQLite 语法并恢复，历史数据无缝迁移。
+
+### 常见问题
+
+| 现象 | 解决 |
+|---|---|
+| `Could not read package.json` | 确认 Worker 在仓库根目录构建（本仓库已配置好，无需子目录）。 |
+| `no such table` | 执行 `npx wrangler d1 migrations apply DB --remote` 或访问 `/install`。 |
+| 登录后退出 | 配置 `SYS_KEY`，清理浏览器 Cookie 重试。 |
+| Action 报 database_id 错误 | 配置 `CF_D1_DATABASE_ID` / `CF_KV_NAMESPACE_ID` Variables，或手填 `wrangler.toml`。 |
+
+---
+
+## 原项目说明（PHP 版本）
+
+以下是原 ThinkPHP 项目的功能介绍与传统部署方式（本 Cloudflare 版本不依赖这些内容）。
 
 <div align="center">
 
@@ -24,24 +99,6 @@
 - 提供MCP接口，可通过 AI Agent管理域名解析、容灾切换、SSL证书等功能。
 
 ## 部署方式
-
-### Cloudflare 部署（Workers + Pages + D1/KV）
-
-新增的 TypeScript 原生版本，无需 PHP 服务器，运行在 Cloudflare 边缘：后端 API + 定时任务跑在 **Workers**，前端静态资源由 Worker Assets 托管，业务数据存 **D1**（免费 SQLite），缓存/会话存 **KV**。
-
-**一键部署（最简单）** —— 点击后 Cloudflare 会自动克隆代码、创建并绑定 D1/KV、初始化数据库并部署，全程无需命令行：
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YJHxx2561/dnsmgr/tree/main/cloudflare/worker)
-
-**其他部署方式**：
-- **GitHub Actions**（push 自动部署）：仓库内置 `.github/workflows/deploy-cloudflare.yml`，配置 `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID` 等 Secrets 后即可用，支持手动触发。
-- **本地 CLI**：`cd cloudflare/worker && npm install && npm run deploy`。
-
-> 📖 **完整部署教程（一键部署 / GitHub Actions / 本地 CLI 的逐步说明、密钥配置、故障排查）见 [`cloudflare/README.md`](cloudflare/README.md)**。
-> 迁移方案与功能取舍见 [`docs/CLOUDFLARE_MIGRATION_PLAN.md`](docs/CLOUDFLARE_MIGRATION_PLAN.md)。
-
-核心功能保留：多用户/权限、22 个 DNS 平台元数据、解析记录实时管理、容灾切换（HTTP 探测）、定时切换、通知、MCP、**数据库备份导出/导入（兼容历史 MySQL dump 恢复）**。
-迁移取舍：ping/tcp 检测改为 HTTP 探测、SMTP 改 HTTP 邮件 API、部分 provider/ACME 验证需按平台补全。
 
 ### 自部署
 

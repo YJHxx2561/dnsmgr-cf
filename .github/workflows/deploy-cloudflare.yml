@@ -1,7 +1,9 @@
 # 通过 GitHub Actions 部署 dnsmgr 到 Cloudflare Workers
 #
+# 项目结构：Worker 项目位于仓库根目录（package.json / wrangler.toml / src / web / migrations 都在根）。
+#
 # 前置准备（在仓库 Settings → Secrets and variables → Actions 中配置）：
-#   1) Secrets：
+#   1) Secrets（必填）：
 #      - CLOUDFLARE_API_TOKEN：Cloudflare API Token（权限：Account / Workers Scripts:Edit、D1:Edit、Workers KV Storage:Edit）
 #      - CLOUDFLARE_ACCOUNT_ID：Cloudflare 账户 ID
 #   2) Variables（可选，用于覆盖 wrangler.toml 中的占位符，避免改动源码）：
@@ -14,12 +16,18 @@
 name: Deploy dnsmgr to Cloudflare
 
 on:
-  # 推送到 main 分支自动部署（PHP 源码等其他目录改动也会触发，可用 paths 限定）
+  # 推送到 main 分支自动部署
   push:
     branches:
       - main
     paths:
-      - 'cloudflare/worker/**'
+      - 'src/**'
+      - 'web/**'
+      - 'migrations/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'wrangler.toml'
+      - 'tsconfig.json'
       - '.github/workflows/deploy-cloudflare.yml'
   # 手动触发
   workflow_dispatch:
@@ -34,10 +42,6 @@ jobs:
     name: Deploy Worker
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # 工作目录为 Worker 子目录
-    defaults:
-      run:
-        working-directory: cloudflare/worker
 
     steps:
       - name: Checkout 仓库
@@ -52,7 +56,6 @@ jobs:
         run: npm ci
 
       - name: 注入 D1 / KV 资源 ID（若配置了 Variables）
-        working-directory: cloudflare/worker
         env:
           CF_D1_DATABASE_ID: ${{ vars.CF_D1_DATABASE_ID }}
           CF_KV_NAMESPACE_ID: ${{ vars.CF_KV_NAMESPACE_ID }}
@@ -71,7 +74,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: cloudflare/worker
           command: d1 migrations apply DB --remote
 
       - name: 部署 Worker
@@ -79,5 +81,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: cloudflare/worker
           command: deploy
