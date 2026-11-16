@@ -1,41 +1,62 @@
 # 彩虹聚合DNS管理系统 · Cloudflare 版
 
-> 本仓库是 [dnsmgr](https://github.com/netcccyun/dnsmgr) 的 **Cloudflare Workers 原生版本**（TypeScript 重写）。Worker 项目位于**仓库根目录**，可直接一键部署。
-
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YJHxx2561/dnsmgr-cf)
+> 本仓库是 [dnsmgr](https://github.com/netcccyun/dnsmgr) 的 **Cloudflare Workers 原生版本**（TypeScript 重写）。Worker 项目位于**仓库根目录**。
 
 后端 API + 定时任务运行在 Cloudflare Workers，前端由 Worker Assets 托管，数据存 D1（免费 SQLite），缓存存 KV。保留多用户权限、22 个 DNS 平台、解析记录实时管理、容灾切换、定时切换、通知、MCP、数据库备份/恢复（兼容历史 MySQL dump）等核心功能。
 
-## 🚀 部署教程
+## 🚀 部署教程（推送代码即自动部署，无需新建仓库）
 
-三种方式任选其一，部署后访问 `https://<你的worker域名>/install` 创建管理员账号即可使用。
+部署后访问 `https://<你的worker域名>/install` 创建管理员账号即可使用。
 
-### 方式一：一键部署（Deploy to Cloudflare，最简单）
+> 💡 **关于「Deploy to Cloudflare」按钮**：该按钮是 Cloudflare 官方提供的**项目分发**工具，它的机制是**把仓库克隆一份到你的 GitHub 账号**再部署，因此一定会新建仓库。如果你就是本仓库的拥有者、想直接部署**当前仓库**，请用下面的**方式一（Workers Builds）**或**方式二（GitHub Actions）**——两者都不会新建仓库，且 push 后自动部署。文末附有按钮的说明。
 
-点击本页顶部的 **Deploy to Cloudflare** 按钮 → 授权 GitHub → Cloudflare 会自动把本仓库克隆到你的 GitHub 账号，**自动创建并绑定 D1 数据库和 KV 命名空间**、自动初始化数据库、自动部署。全程无需命令行。
+### 方式一：Workers Builds（推荐，Dashboard 直接连接现有仓库，不用 API Token）
 
-1. 前置：拥有 Cloudflare 账号 + GitHub 账号（本仓库需为 public）。
-2. 点击按钮，在配置页确认 Worker 名称、D1/KV 资源名称（可保持默认）。
-3. **Build command 留空**，**Deploy command 保持 `npm run deploy`**（该脚本会先执行幂等的 D1 迁移，再部署 Worker）。
-4. 点击 Deploy，等待部署完成。
-5. 访问 `https://<worker域名>/install` 创建管理员。
-6. （可选）在 Worker → Settings → Variables and Secrets 添加 `SYS_KEY` 随机字符串增强 cookie 加密；不填系统会自动生成。
+这是 Cloudflare 官方的 Git 集成：**在 Dashboard 里连接你现有的这个仓库**，授权后即可 push 自动部署，全程不用手动建 API Token。
 
-> 如果按钮链接中的仓库地址不是你自己的，把链接里的 `YJHxx2561/dnsmgr-cf` 换成 `<你的用户名>/<仓库名>`。
+**第 1 步：创建 D1 数据库和 KV 命名空间**（各一次）
+- Dashboard → **D1** → Create database，名称填 `dnsmgr`，创建后复制它的 **Database ID**
+- Dashboard → **Workers KV** → Create namespace，名称填 `dnsmgr_kv`，创建后复制它的 **Namespace ID**
+
+**第 2 步：把两个 ID 填入配置并提交**
+编辑仓库根目录的 `wrangler.toml`，把占位符替换成上一步的 ID：
+```toml
+[[d1_databases]]
+database_id = "这里填D1的Database ID"
+[[kv_namespaces]]
+id = "这里填KV的Namespace ID"
+```
+然后 `git add wrangler.toml && git commit -m "config: 填入D1/KV资源ID" && git push`。
+
+**第 3 步：在 Dashboard 连接仓库**
+- Dashboard → **Workers & Pages** → **Create** → **Import from GitHub**（或"从 Git 仓库导入"）
+- 首次会引导安装/授权 **Cloudflare Workers & Pages** GitHub App，选择本仓库 `dnsmgr-cf`
+- 构建配置：
+  - **Root directory**：留空（或 `/`，因为 Worker 就在仓库根目录）
+  - **Build command**：留空
+  - **Deploy command**：`npm run deploy`（会先执行幂等 D1 迁移，再部署 Worker）
+- 点击 **Save and Deploy**
+
+**第 4 步：完成**
+之后每次 `git push` 到 `main` 都会自动重新部署；部署日志在 Worker 的 **Builds** 标签页查看。访问 Worker 域名 `/install` 创建管理员。
+（可选）在 Worker → Settings → Variables and Secrets 添加 `SYS_KEY` 随机字符串增强 cookie 加密，不填会自动生成。
 
 ### 方式二：GitHub Actions（push 自动部署）
 
-仓库已内置 `.github/workflows/deploy-cloudflare.yml`，Worker 在仓库根目录，无需设置子目录。
+> ✅ **推荐方式**：用你现有的这个仓库即可，**不需要新建仓库**。配置一次 Secrets 后，以后每次 `git push` 到 `main` 都会自动完成部署。
 
-1. 在仓库 **Settings → Secrets and variables → Actions** 配置：
-   - **Secrets（必填）**：
-     - `CLOUDFLARE_API_TOKEN`：API 令牌（权限含 Workers Scripts:Edit、D1:Edit、Workers KV Storage:Edit）
-     - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare 账户 ID
-   - **Variables（可选，推荐）**：
-     - `CF_D1_DATABASE_ID`、`CF_KV_NAMESPACE_ID`：填资源 ID，工作流会自动替换 `wrangler.toml` 占位符；不填则需手动把 `wrangler.toml` 里的 `REPLACE_WITH_YOUR_D1_DATABASE_ID` / `REPLACE_WITH_YOUR_KV_NAMESPACE_ID` 换成真实 ID。
-2. 创建资源（若还没有）：`npx wrangler d1 create dnsmgr`、`npx wrangler kv namespace create dnsmgr_kv`。
-3. 触发：Actions 页手动 Run workflow，或 push 到 `main`（改动 src/web/migrations 等时自动触发）。
-4. 工作流依次执行：安装依赖 → 注入资源 ID → 应用 D1 迁移 → 部署 Worker。
+仓库已内置 `.github/workflows/deploy-cloudflare.yml`，Worker 在仓库根目录，无需设置子目录。工作流会**自动创建 D1/KV 资源（若不存在）并注入 ID**，所以你不用手动建库。
+
+1. 在**当前仓库** **Settings → Secrets and variables → Actions → Secrets** 添加两个 Secret：
+   - `CLOUDFLARE_API_TOKEN`：API 令牌
+     - 生成：Cloudflare Dashboard → 头像 → My Profile → API Tokens → Create Token → 用模板 **Edit Cloudflare Workers**（或自定义，需包含 `Workers Scripts:Edit`、`D1:Edit`、`Workers KV Storage:Edit` 权限）
+   - `CLOUDFLARE_ACCOUNT_ID`：Cloudflare 账户 ID（Dashboard 右侧栏可见）
+2. （可选）在 **Variables** 添加 `CF_D1_DATABASE_ID` / `CF_KV_NAMESPACE_ID` 以复用已有资源；不填则自动创建/复用同名 `dnsmgr` / `dnsmgr_kv`。
+3. 触发部署：
+   - **自动**：`git push` 到 `main`（改动 `src/`、`web/`、`migrations/`、`wrangler.toml` 等时触发）
+   - **手动**：Actions 页 → **Deploy dnsmgr to Cloudflare** → Run workflow
+4. 工作流步骤：安装依赖 → 自动准备 D1/KV 并注入 ID → 应用幂等数据库迁移 → 部署 Worker。
+5. 每次 push 后到 Actions 页可看到实时构建日志；部署完成后访问 Worker 域名即可。
 
 ### 方式三：本地 CLI（wrangler）
 
@@ -68,6 +89,17 @@ npm run deploy                                # 部署：自动迁移 + 部署
 | `no such table` | 执行 `npx wrangler d1 migrations apply DB --remote` 或访问 `/install`。 |
 | 登录后退出 | 配置 `SYS_KEY`，清理浏览器 Cookie 重试。 |
 | Action 报 database_id 错误 | 配置 `CF_D1_DATABASE_ID` / `CF_KV_NAMESPACE_ID` Variables，或手填 `wrangler.toml`。 |
+| 一键按钮会新建仓库 | 这是按钮的官方机制（用于分发项目）。要部署当前仓库请用方式一 Workers Builds 或方式二 GitHub Actions。 |
+
+### 关于「Deploy to Cloudflare」一键按钮
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/YJHxx2561/dnsmgr-cf)
+
+这个按钮的用途是**把本项目分发给别人**：点击者点击后，Cloudflare 会把仓库**克隆一份到他自己的 GitHub 账号**，再自动创建资源并部署。因此它**一定会新建仓库**，这是 Cloudflare 的设计，无法通过修改项目配置改变。
+
+- 如果你是本仓库拥有者、想部署**当前仓库** → 用上面的**方式一**或**方式二**（都不新建仓库，push 自动部署）。
+- 如果你想把项目分享给别人一键体验 → 保留此按钮即可；别人点击后会自动在其账号克隆并部署。
+- 若按钮链接指向的不是你 fork 的仓库，把链接里的 `YJHxx2561/dnsmgr-cf` 换成 `<你的用户名>/<仓库名>`。
 
 ---
 

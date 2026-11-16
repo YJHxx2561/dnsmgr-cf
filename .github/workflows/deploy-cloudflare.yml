@@ -6,12 +6,10 @@
 #   1) Secrets（必填）：
 #      - CLOUDFLARE_API_TOKEN：Cloudflare API Token（权限：Account / Workers Scripts:Edit、D1:Edit、Workers KV Storage:Edit）
 #      - CLOUDFLARE_ACCOUNT_ID：Cloudflare 账户 ID
-#   2) Variables（可选，用于覆盖 wrangler.toml 中的占位符，避免改动源码）：
-#      - CF_D1_DATABASE_ID：D1 数据库 ID（用 wrangler d1 create dnsmgr 创建）
-#      - CF_KV_NAMESPACE_ID：KV 命名空间 ID（用 wrangler kv namespace create dnsmgr_kv 创建）
+#   2) Variables（可选）：CF_D1_DATABASE_ID / CF_KV_NAMESPACE_ID（资源已存在时填，加速部署）
 #
-# 说明：如果未配置 Variables，请先手动把 wrangler.toml 中的
-# REPLACE_WITH_YOUR_D1_DATABASE_ID / REPLACE_WITH_YOUR_KV_NAMESPACE_ID 替换为真实 ID。
+# 自动建资源：若未提供 Variables，工作流会自动创建 D1/KV（如不存在）并注入 ID，
+# 因此首次使用只需配置两个 Secret，push 即可完成全部部署，无需手动建库、无需新建仓库。
 
 name: Deploy dnsmgr to Cloudflare
 
@@ -55,17 +53,45 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: 注入 D1 / KV 资源 ID（若配置了 Variables）
+      - name: 准备 D1 / KV 资源并注入 ID
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CF_D1_DATABASE_ID: ${{ vars.CF_D1_DATABASE_ID }}
           CF_KV_NAMESPACE_ID: ${{ vars.CF_KV_NAMESPACE_ID }}
         run: |
-          if [ -n "$CF_D1_DATABASE_ID" ]; then
-            sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$CF_D1_DATABASE_ID/g" wrangler.toml
+          set -e
+          D1_ID="$CF_D1_DATABASE_ID"
+          KV_ID="$CF_KV_NAMESPACE_ID"
+
+          # D1：优先用 Variable；否则复用同名库，再否则创建
+          if [ -z "$D1_ID" ]; then
+            D1_ID=$(npx wrangler d1 list --json 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const a=JSON.parse(s);const x=a.find(o=>o.name==='dnsmgr');if(x)process.stdout.write(x.uuid||x.id||'')}catch(e){}})")
           fi
-          if [ -n "$CF_KV_NAMESPACE_ID" ]; then
-            sed -i "s/REPLACE_WITH_YOUR_KV_NAMESPACE_ID/$CF_KV_NAMESPACE_ID/g" wrangler.toml
+          if [ -z "$D1_ID" ]; then
+            echo "未找到 D1 数据库，正在自动创建 dnsmgr ..."
+            CREATE_OUT=$(npx wrangler d1 create dnsmgr 2>&1 || true)
+            echo "$CREATE_OUT"
+            D1_ID=$(printf '%s' "$CREATE_OUT" | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)
           fi
+          if [ -z "$D1_ID" ]; then echo "::error::无法获取 D1 数据库 ID，请检查 API Token 的 D1:Edit 权限"; exit 1; fi
+
+          # KV：优先用 Variable；否则复用同名命名空间，再否则创建
+          if [ -z "$KV_ID" ]; then
+            KV_ID=$(npx wrangler kv namespace list --json 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const a=JSON.parse(s);const x=a.find(o=>o.title==='dnsmgr_kv');if(x)process.stdout.write(x.id||'')}catch(e){}})")
+          fi
+          if [ -z "$KV_ID" ]; then
+            echo "未找到 KV 命名空间，正在自动创建 dnsmgr_kv ..."
+            CREATE_KV=$(npx wrangler kv namespace create dnsmgr_kv 2>&1 || true)
+            echo "$CREATE_KV"
+            KV_ID=$(printf '%s' "$CREATE_KV" | grep -oE '[0-9a-f]{32}' | head -1 || true)
+          fi
+          if [ -z "$KV_ID" ]; then echo "::error::无法获取 KV 命名空间 ID，请检查 API Token 的 Workers KV Storage:Edit 权限"; exit 1; fi
+
+          echo "D1_ID=$D1_ID"
+          echo "KV_ID=$KV_ID"
+          sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$D1_ID/g" wrangler.toml
+          sed -i "s/REPLACE_WITH_YOUR_KV_NAMESPACE_ID/$KV_ID/g" wrangler.toml
           echo "wrangler.toml 资源配置："
           grep -E 'database_id|^id =' wrangler.toml || true
 
