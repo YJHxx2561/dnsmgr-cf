@@ -7,8 +7,9 @@ import { db, tableExists } from '../db/database';
 import { configGet, configSet, getSysKey, isInstalled, clearConfigCache } from '../core/config';
 import { authcode, md5, now, passwordHash, passwordVerify, random, timestamp } from '../utils/crypto';
 import { issueUserToken, cookieHeader } from '../auth/middleware';
-import { fail, json, redirect, text } from '../core/response';
+import { fail, json, redirect } from '../core/response';
 import { INIT_SQL } from '../db/init-sql';
+import { installPageHtml, installedPageHtml } from './install-page';
 
 /** 简单验证码（数字加法），存 KV，替代 PHP think-captcha session */
 async function generateCaptcha(env: Env): Promise<{ key: string; image: string; answer: string }> {
@@ -27,8 +28,9 @@ export async function install(ctx: RequestContext): Promise<Response> {
   const { env, request, body } = ctx;
   if (request.method === 'GET') {
     const installed = await isInstalled(env);
-    if (installed) return text('当前已经安装成功，如需重新安装请清空 D1 数据库。');
-    return json({ code: 1, msg: '等待安装', data: { installed: false } });
+    return new Response(installed ? installedPageHtml() : installPageHtml(), {
+      headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store' },
+    });
   }
 
   // POST：初始化 D1 表结构 + 创建管理员
@@ -179,8 +181,15 @@ export async function setpwd(ctx: RequestContext): Promise<Response> {
   return json({ code: 0, msg: '密码修改成功' });
 }
 
+/** 安装状态探测（供前端判断是否跳转到安装页） */
+export async function installCheck(ctx: RequestContext): Promise<Response> {
+  const installed = await isInstalled(ctx.env);
+  return json({ installed });
+}
+
 /** 注册路由 */
 export function registerAuthRoutes(router: Router): void {
+  router.get('/install/check', installCheck, { authType: 'none' });
   router.any('/install', install, { authType: 'none' });
   router.get('/verifycode', verifycode, { authType: 'none' });
   router.any('/login', login, { authType: 'none' });

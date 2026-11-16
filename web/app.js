@@ -81,7 +81,13 @@
   }
 
   async function checkLogin() {
-    const res = await request('/', {}, 'GET');
+    // 若系统尚未安装，直接跳转到安装向导
+    try {
+      const st = await request('/install/check', {}, 'GET');
+      if (st && st.installed === false) { location.href = '/install'; return; }
+    } catch (e) { /* 探测失败则继续走登录流程 */ }
+
+    const res = await request('/api/status', {}, 'GET');
     if (res.code === 0) {
       currentUser = res.data;
       await showApp();
@@ -181,7 +187,7 @@
 
   PAGES.dashboard = async (el) => {
     setTitle('仪表盘');
-    const res = await request('/', {}, 'GET');
+    const res = await request('/index/dashboard', {}, 'GET');
     const d = res.data || {};
     el.innerHTML = `
       <div class="row">

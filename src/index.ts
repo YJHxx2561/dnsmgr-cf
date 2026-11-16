@@ -40,8 +40,14 @@ router.get('/cron', async (ctx) => {
 router.any('/mcp', handleMcp, { authType: 'mcp' });
 
 /* ---------------------- 首页/仪表盘 ---------------------- */
-router.get('/', systemInfo, { auth: true });
-router.get('/index/index', systemInfo, { auth: true });
+// 登录状态检查端点（前端 SPA 用）
+// 已登录：code=0 + data；未登录：router 鉴权自动返回 code=-1（前端据此显示登录框）
+router.get('/api/status', async (ctx) => json({ code: 0, data: {
+  id: ctx.user!.id, username: ctx.user!.username, level: ctx.user!.level,
+  type: ctx.user!.type, is_api: ctx.user!.is_api, apikey: ctx.user!.apikey,
+} }), { auth: true });
+// 兼容：仪表盘数据仍可用 /index/dashboard 获取
+router.get('/index/dashboard', systemInfo, { auth: true });
 router.any('/test', async (ctx) => json({ code: 0, data: { ok: true, platform: 'Cloudflare Workers' } }), { auth: true });
 router.get('/cleancache', cleanCache, { auth: true });
 
@@ -144,9 +150,16 @@ export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
 
-    // 静态资源（Assets / Pages）：仅 GET/HEAD 且看起来是静态文件请求时才交给 Assets，
-    // 避免消费掉 API 请求的 body。
-    const isStatic = /\.(html?|css|js|json|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|txt|map)$/i.test(url.pathname);
+    // 前端页面路由：访问 "/" 或 "/login" 时返回 SPA 入口 index.html
+    // （注意 /install 由 Worker 专门处理，返回安装表单，不在此列）
+    const isPageRoute = url.pathname === '/' || url.pathname === '/login' || url.pathname === '/index.html';
+    if (env.ASSETS && (request.method === 'GET' || request.method === 'HEAD') && isPageRoute) {
+      const pageResp = await env.ASSETS.fetch(new Request(new URL('/index.html', url).toString()) as any).catch(() => null);
+      if (pageResp && pageResp.status === 200) return pageResp;
+    }
+
+    // 其他静态资源（css/js/图片等）：仅 GET/HEAD，避免消费 API 请求的 body
+    const isStatic = /\.(css|js|json|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|eot|txt|map)$/i.test(url.pathname);
     if (env.ASSETS && (request.method === 'GET' || request.method === 'HEAD') && isStatic) {
       const assetResponse = await env.ASSETS.fetch(request.clone() as any).catch(() => null);
       if (assetResponse && assetResponse.status !== 404) return assetResponse;
