@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Checkout 仓库
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: 安装 Node.js
         uses: actions/setup-node@v4
